@@ -8,20 +8,34 @@ import random
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="PZN Scraper Tool", page_icon="💊", layout="wide")
 
-# --- SECURITY / PASSWORD PROTECTION ---
-# Change "Secret2026" to whatever password you want to give your colleague
-password = st.sidebar.text_input("🔒 Enter Password:", type="password")
+# --- AUTHENTICATION LOGIC (SESSION STATE) ---
+# 1. Check if 'authenticated' exists in the memory. If not, set it to False.
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
 
-if password != "yadayada26":
-    st.info("Please enter the correct password in the sidebar to access the tool.")
-    st.stop()  # Stops the script here until the correct password is entered
+# 2. Function to check password
+def check_password():
+    if st.session_state.password_input == "yadayada26":
+        st.session_state.authenticated = True
+        del st.session_state.password_input  # Clean up memory
+    else:
+        st.error("❌ Wrong password")
+
+# 3. Show Login ONLY if not authenticated
+if not st.session_state.authenticated:
+    st.title("🔒 Login Required")
+    st.text_input("Please enter the password:", type="password", key="password_input", on_change=check_password)
+    st.stop()  # STOPS everything here. The code below is not loaded until logged in.
+
+# =========================================================
+#  ⬇️ THE TOOL STARTS HERE (Only visible after login) ⬇️
+# =========================================================
 
 # --- MAIN APP ---
 st.title("💊 PZN Pharmacy Scraper")
 st.markdown("Paste your list of PZNs below. The tool automatically fetches Name, Brand, and Quantity from Shop-Apotheke.")
 
 # --- INPUT ---
-# Example input (mixed format)
 default_pzns = "40554, 3161577\n18661452"
 
 col1, col2 = st.columns([1, 2])
@@ -30,7 +44,7 @@ with col1:
     pzn_input = st.text_area("Enter PZNs (one per line or comma-separated):", value=default_pzns, height=300)
     start_button = st.button("🚀 Fetch Data", type="primary", use_container_width=True)
 
-# --- LOGIC ---
+# --- LOGIK ---
 if start_button:
     # 1. Normalize input: Replace commas with newlines
     normalized_input = pzn_input.replace(',', '\n')
