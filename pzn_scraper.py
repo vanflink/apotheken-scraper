@@ -15,7 +15,7 @@ if 'authenticated' not in st.session_state:
 
 # 2. Function to check password
 def check_password():
-    if st.session_state.password_input == "yadayada26":
+    if st.session_state.password_input == st.secrets["passwort"]:
         st.session_state.authenticated = True
         del st.session_state.password_input  # Clean up memory
     else:
