@@ -8,48 +8,52 @@ import random
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="PZN Scraper Tool", page_icon="💊", layout="wide")
 
-# --- AUTHENTICATION LOGIC (SESSION STATE) ---
-# 1. Check if 'authenticated' exists in the memory. If not, set it to False.
+# --- AUTHENTICATION LOGIC (SECURE) ---
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 
-# 2. Function to check password
 def check_password():
-    if st.session_state.password_input == st.secrets["passwort"]:
-        st.session_state.authenticated = True
-        del st.session_state.password_input  # Clean up memory
-    else:
-        st.error("❌ Wrong password")
+    try:
+        # Versucht das Passwort aus den Secrets zu holen
+        secret_pw = st.secrets["app_password"]
+        
+        if st.session_state.password_input == secret_pw:
+            st.session_state.authenticated = True
+            del st.session_state.password_input
+        else:
+            st.error("❌ Wrong password")
+    except FileNotFoundError:
+        # Fallback für lokales Testen ohne Secrets-Datei
+        if st.session_state.password_input == "Secret2026":
+            st.session_state.authenticated = True
+        else:
+            st.error("⚠️ Secrets not configured & Wrong fallback password.")
+    except KeyError:
+        st.error("⚠️ Key Error. Make sure 'app_password' is set in Streamlit Secrets.")
 
-# 3. Show Login ONLY if not authenticated
+# Show Login if not authenticated
 if not st.session_state.authenticated:
     st.title("🔒 Login Required")
     st.text_input("Please enter the password:", type="password", key="password_input", on_change=check_password)
-    st.stop()  # STOPS everything here. The code below is not loaded until logged in.
+    st.stop()
 
 # =========================================================
-#  ⬇️ THE TOOL STARTS HERE (Only visible after login) ⬇️
+#  ⬇️ MAIN TOOL ⬇️
 # =========================================================
 
-# --- MAIN APP ---
 st.title("💊 PZN Pharmacy Scraper")
-st.markdown("Paste your list of PZNs below. The tool automatically fetches Name, Brand, and Quantity from Shop-Apotheke.")
+st.markdown("Paste your list of PZNs below.")
 
-# --- INPUT ---
 default_pzns = "40554, 3161577\n18661452"
-
 col1, col2 = st.columns([1, 2])
 
 with col1:
     pzn_input = st.text_area("Enter PZNs (one per line or comma-separated):", value=default_pzns, height=300)
     start_button = st.button("🚀 Fetch Data", type="primary", use_container_width=True)
 
-# --- LOGIK ---
 if start_button:
-    # 1. Normalize input: Replace commas with newlines
+    # 1. Input Normalization
     normalized_input = pzn_input.replace(',', '\n')
-    
-    # 2. Clean list: Remove whitespace and empty lines
     pzns = [line.strip() for line in normalized_input.split('\n') if line.strip()]
     
     if not pzns:
@@ -61,8 +65,6 @@ if start_button:
             status_text = st.empty()
             
         results = []
-        
-        # User-Agent to mimic a real browser
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
@@ -73,65 +75,47 @@ if start_button:
             
             try:
                 response = requests.get(url, headers=headers, timeout=10)
-                
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.content, "html.parser")
                     
-                    # 1. Name
+                    # --- 1. NAME (BEREINIGT) ---
                     name_tag = soup.find("h1")
                     name = name_tag.text.strip() if name_tag else "Not found"
                     
-                    # 2. Brand
+                    # HIER IST DIE NEUE LOGIK: Entferne alles ab " - Jetzt"
+                    if " - Jetzt" in name:
+                        name = name.split(" - Jetzt")[0].strip()
+                    
+                    # --- 2. BRAND ---
                     brand_tag = soup.select_one(".font-normal a")
                     brand = brand_tag.text.strip() if brand_tag else "n.a."
                     
-                    # 3. Quantity (Cleaned)
+                    # --- 3. MENGE (BEREINIGT) ---
                     menge_tag = soup.select_one("div.leading-l")
-                    if menge_tag:
-                        # We remove the German text "Packungsgröße:" to keep it clean
-                        menge = menge_tag.text.replace("Packungsgröße:", "").strip()
-                    else:
-                        menge = "n.a."
+                    menge = menge_tag.text.replace("Packungsgröße:", "").strip() if menge_tag else "n.a."
                     
-                    results.append({
-                        "PZN": pzn,
-                        "Name": name,
-                        "Brand": brand,
-                        "Quantity": menge,
-                        "Link": url
-                    })
+                    results.append({"PZN": pzn, "Name": name, "Brand": brand, "Quantity": menge, "Link": url})
                 elif response.status_code == 404:
                     results.append({"PZN": pzn, "Name": "❌ Not found", "Brand": "-", "Quantity": "-", "Link": url})
                 else:
                     results.append({"PZN": pzn, "Name": f"Error {response.status_code}", "Brand": "-", "Quantity": "-", "Link": url})
-
             except Exception as e:
                 results.append({"PZN": pzn, "Name": "Error", "Brand": "-", "Quantity": str(e), "Link": url})
             
-            # Update Progress
             progress_bar.progress((i + 1) / len(pzns))
-            # Human-like delay
             time.sleep(random.uniform(0.5, 1.5)) 
 
         status_text.text("✅ Finished!")
-        
-        # --- RESULTS & DOWNLOAD ---
         df = pd.DataFrame(results)
         
-        # Reorder columns
+        # Spalten sortieren
         cols = ["PZN", "Name", "Brand", "Quantity", "Link"]
         final_cols = [c for c in cols if c in df.columns]
         df = df[final_cols]
         
         st.divider()
-        st.subheader("Results")
         st.dataframe(df, use_container_width=True)
         
         # CSV Export
         csv = df.to_csv(index=False, sep=";", encoding="utf-8-sig").encode('utf-8-sig')
-        st.download_button(
-            label="💾 Download CSV",
-            data=csv,
-            file_name="pzn_export_final.csv",
-            mime="text/csv",
-        )
+        st.download_button(label="💾 Download CSV", data=csv, file_name="pzn_export_clean.csv", mime="text/csv")
